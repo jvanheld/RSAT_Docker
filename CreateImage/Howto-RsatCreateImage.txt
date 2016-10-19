@@ -1,0 +1,116 @@
+## Creation image rsat sous debian derniere version
+## Latest debian image (jessie 8.5)
+## on suppose que l'on est dans une machine hote linux qui contient un script d'install rsat appellé RsatCreateImage.sh executable en root
+## ce script est dans un repertoire /RsatInstall de cette machine sur laquelle vous etes connecté avec un compte root(et son mot de passe)
+## au besoin faire un chmod 744 /RsatInstall/RsatCreateImage.sh
+## ce repertoire contient aussi une licence vmatch : vmatch_RSATVM-IFB_2015-07-06.lic
+## cette machine doit posséder un serveur ssh (verifier en tapant service --status-all | grep ssh)
+## cette machine possede une interface reseau eth0 (d'adresse 10.1.1.210  dans notre cas)
+## (utiliser la commande ifconfig eth0 | grep inet\ |    awk -F ' ' '{print $2}' |    awk -F ':' '{print $2}' pour determiner cette adresse si besoin)
+## ouvrir deux shell sur cette machine hebergeuse (ssh 10.1.1.210 par exemple ou utiliser putty avec adresse 10.1.1.210)
+## le premier shell servira à construire un conteneur contenant une version de rsat sous debian; 
+## le second servira à tester ce conteneur puis si tout va bien à créer une image de ce conteneur et la sauver
+##
+## SHELL 1 machine HOTE
+#######################
+## Dans le premier shell installer docker si ce n'est deja fait ( en utilisant curl par exemple : curl -sSL https://get.docker.com/ | sh )
+## si vous n'avez pas curl, sur debian ou ubuntu taper apt-get install curl sur redhat ou centos yum install curl
+## Toujours sur le premier shell de la machine hote hebergeuse, 
+## Récupérer une image debian
+docker pull debian:latest
+## Verifier l'espace disponible avant install sur cette machine hote :
+df -hT 
+## Filesystem           Type   Size  Used Avail Use% Mounted on
+## /dev/mapper/VolGroup-lv_root
+##                     ext4    24G  6.9G   16G  31% /
+##/dev/sda1            ext4   477M   55M  398M  12% /boot
+## /dev/mapper/VolGroup-lv_home
+##                     ext4    25G  4.7G   19G  21% /home
+##
+## Renommer la version (ici 3.0.0) debian en version initiale d'install de rsat (par exemple ici 3.0.0)
+docker tag debian:jessie rsat_debian:3.0.0
+## Sur cette machine hote lancer un conteneur bati sur cette version avec un port web(http) vu de l'hote en 32801 et une zone de partage hote/conteneur qui est RsatInstall/rsat
+docker run -t -i  -p 32801:80 --volume /RsatInstall:/RsatInstall rsat_debian:3.0.0
+##
+##
+## SHELL 1 Conteneur Docker
+###########################
+##
+## Lancer le script d'in stall en tapant :
+cd /RsatInstall
+./RsatCreateImage.sh  > /RsatInstall/RsatInstall.log 2>&1
+## Ca va durer longtemps
+##
+*****************************************************************************************************
+Lorsque c'est fini, on reste dans le conteneur ou rsat tourne sur le premier shell
+*****************************************************************************************************
+Aller sur la machine hebergeuse(hote) dans le second shell
+##
+## SHELL 2 machine HOTE
+#######################
+## Observer les images de conteneur déjà existantes
+docker images
+## REPOSITORY          TAG                 IMAGE ID            CREATED             VIRTUAL SIZE
+## debian              jessie              736e5442e772        2 weeks ago         125.1 MB
+## rsat_debian         3.0.0               736e5442e772        2 weeks ago         125.1 MB
+##
+## Faire un docker ps pour connaitre le nom du conteneur contenant Rsat, par exemple goofy_fermi dans notre cas:
+docker ps
+## CONTAINER ID        IMAGE               COMMAND             CREATED             STATUS              PORTS                   NAMES
+## 6d979a7841ee        rsat_debian:3.0.0   "/bin/bash"         About an hour ago   Up About an hour    0.0.0.0:32801->80/tcp   goofy_fermi
+## remarque : 32801 est le port http(web) de connexion au service web du conteneur vu lorsque on se connecte depuis l'hote
+## Depuis cette machine hote, faire un premier test de connexion web vers apache :
+## Dans un navigateur (FireFox, Chrome, Safari, ..) taper http://10.1.1.210:32801
+## Puis un second pour verifier rsat http://10.1.1.210:32801/rsat avec ce meme navigateur
+## Verifier le bon fonctionnement de rsat en lancant quelques applications au travers de l'interface web depuis la machine hote (hebergeuse)
+## Si tout est correct sur cette même machine faire, toujours depuis l'hote, une image du conteneur docker(ici: modest_almeida) qui contient un rsat fonctionnel en tapant :
+## Afficher la version rsat installéen tapant
+more /RsatInstall/RsatVersion
+2016-07-15
+#
+docker commit goofy_fermi rsat_debian:2016-07-15
+## 6fc7b0c59106f83de195ab6d6fe09ffe8b9634b42862daf81ad62185b0babe3e
+## On peut voir l'image créée qui fait un peu plus de 1 Giga octets
+docker images
+## REPOSITORY          TAG                 IMAGE ID            CREATED             VIRTUAL SIZE
+## rsat_debian         2016-07-15          bc13c482aece        12 minutes ago      3.345 GB
+## rsat_debian         2.1.0               6fc7b0c59106        5 days ago          1.15 GB
+## debian              jessie              736e5442e772        3 weeks ago         125.1 MB
+## On peut maintenant sauver cette image dans un fichier (par exemple fichier appellé rsat_debian-3_1_0.tar dans le dossier /RsatInstall)
+ docker save -o /home/rsat_debian-2016-07-15.tar rsat_debian:2016-07-15
+## Ce fichier fait la taille de l'image :
+ls -ali  /home/rsat_debian-2016-07-15.tar
+## 3571004 -rwxrwxrwx 1 root root 3399339008 juil. 21 11:56 rsat_debian-2016-07-15.tar
+##
+## Execution de l'image sur une Autre Machine hote(hebergeuse)
+##############################################################
+## Ce fichier peut maintenant etre copié sur une autre machine linux de votre choix(par exemple dans un dossier  /MyRsat)sur la quelle on pourra charger cette image, après avoir installé docker sur cette machine, en tapant:
+docker load -i /MyRsat/rsat_debian-2016-07-15.tar
+## 7d7852532044: Loading layer [==================================================>] 130.9 MB/130.9 MB
+## 736e5442e772: Loading layer [==================================================>] 1.024 kB/1.024 kB
+## 6fc7b0c59106: Loading layer [==============
+## Verifier le bon chargement de cette image docker en tapant :
+ docker images
+## REPOSITORY          TAG                 IMAGE ID            CREATED             SIZE
+## rsat_debian         2016-07-15          1e3608e1c2d0        2 hours ago         3.345 G
+## rsat_debian         2.1.0               4ee1910504a1        5 days ago          1.15 GB
+## debian-rsat         1.2.9               dbff35251689        3 weeks ago         4.889 GB
+## Avant de jouer cette image dans un conteneur en tapant par exemple  :
+docker run -t -i  -p 32801:80 --volume /MyRsat:/RsatInstall  rsat_debian:2016-07-15
+
+## Execution de rsat en ligne de commande docker
+################################################
+## On peut executer rsat en ligne de commande; exemple avec la commande retrieve-seq contenue dans /rsat/perl-scripts
+## cette commande s'alimente d'une liste de genes qu'il faut préparer (ici on a fait un fichier list.genes dans le dossier /tmp de l'hote; ce fichier contient une liste :
+## DAL5,GAP1,MEP1,MEP2,PUT4,MEP3,DAL80
+## Par loption --volume de la commande docker run on va mapper le dossier /tmp de l'hote sur le dossier /RsatInstall du conteneur; vu du conteneur, la liste sera donc dans le fichier /RsatInstall/list.genes 
+docker run -t -i -m 1g  -v /tmp:/RsatInstall -p 32801:80 rsat_debian:2016-07-15 /rsat/perl-scripts/retrieve-seq  -org Saccharomyces_cerevisiae -feattype gene -type upstream -format fasta -label name -from -800 -to -1 -i /RsatInstall/list.genes > /tmp/output
+## On peut observer le resultat en fin d'execution sur l'hote dans le fichier de sortie /tmp/output
+more /tmp/output
+## >DAL5   DAL5; upstream from -800 to -1; size: 800; feature type:gene; location: Saccharomyces_cerevisiae:NC_001142.7:718860:719659:D
+## GAACATCTGTTTAACTTTCAAGCTTTCTACCATATAGCCGAGATGAGCAAATACATTAAA
+## ....
+## Remarque : En cas de dysfonctionnement/erreur, verifiez le contenu du
+## fichier de log de la creation d'image :
+## RsatInstall.logi
+### dans le dossier /RsatInstall
